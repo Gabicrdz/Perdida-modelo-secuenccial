@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+</head>
+<body>
+    <h1>Predicción con TensorFlow.js</h1>
+
+    <div class="container">
+        <button id="entrenarModelo">Entrenar Modelo</button>
+    </div>
+
+    <div class="container">
+        <h2>Gráfica de Pérdida durante el Entrenamiento</h2>
+        <div class="chart-container">
+            <canvas id="lossChart"></canvas>
+        </div>
+        <div class="perdida-info" id="perdidaInfo"></div>
+    </div>
+
+    <div class="container">
+        <h2>Predicción</h2>
+        <div>
+            <label for="valoresX">Valores de X (separados por comas):</label>
+            <input type="text" id="valoresX" placeholder="Ej: 10, 20, 25">
+            <button id="predecir">Predecir</button>
+        </div>
+        <div class="resultado">
+            <div class="status" id="status">Estado: Esperando entrenamiento del modelo</div>
+            <div id="resultados">
+                <h3>Resultados:</h3>
+                <ul id="listaResultados"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let modelo;
+        let historialPerdida = [];
+        let lossChart;
+
+        // Inicializar gráfico de pérdida
+        function inicializarGrafico() {
+            const ctx = document.getElementById('lossChart').getContext('2d');
+            lossChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Pérdida (Loss)',
+                        data: [],
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Valor de Pérdida'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Época'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Actualizar gráfico con nuevos datos
+        function actualizarGrafico() {
+            const epocas = Array.from({ length: historialPerdida.length }, (_, i) => i);
+            lossChart.data.labels = epocas;
+            lossChart.data.datasets[0].data = historialPerdida;
+            lossChart.update();
+        }
+
+        // Crear y entrenar el modelo
+        async function entrenarModelo() {
+            // Datos de entrenamiento (ejemplo simple)
+            const xs = tf.tensor2d([1, 2, 3, 4, 5, 6, 7, 8, 9], [9, 1]);
+            const ys = tf.tensor2d([2, 4, 6, 8, 10, 12, 14, 16, 18], [9, 1]);
+
+            // Crear modelo secuencial
+            modelo = tf.sequential();
+            modelo.add(tf.layers.dense({ units: 1, inputShape: [1] }));
+
+            // Compilar modelo
+            modelo.compile({
+                loss: 'meanSquaredError',
+                optimizer: tf.train.adam(0.1)
+            });
+
+            // Limpiar historial anterior
+            historialPerdida = [];
+            
+            // Actualizar estado
+            document.getElementById('status').textContent = 'Estado: Entrenando modelo...';
+
+            // Entrenar modelo
+            await modelo.fit(xs, ys, {
+                epochs: 100,
+                callbacks: {
+                    onEpochEnd: (epoch, logs) => {
+                        historialPerdida.push(logs.loss);
+                        actualizarGrafico();
+                    }
+                }
+            });
+
+            // Mostrar información de pérdida
+            const perdidaInicial = historialPerdida[0];
+            const perdidaFinal = historialPerdida[historialPerdida.length - 1];
+            const reduccionPorcentaje = ((perdidaInicial - perdidaFinal) / perdidaInicial * 100).toFixed(2);
+            
+            document.getElementById('perdidaInfo').textContent = 
+                `Pérdida inicial: ${perdidaInicial.toFixed(4)}, Pérdida final: ${perdidaFinal.toFixed(4)} (Reducción: ${reduccionPorcentaje}%)`;
+
+            // Actualizar estado
+            document.getElementById('status').textContent = 'Estado: Modelo entrenado correctamente';
+        }
+
+        // Realizar predicciones
+        async function realizarPredicciones() {
+            // Verificar si el modelo está entrenado
+            if (!modelo) {
+                alert('Primero debes entrenar el modelo');
+                return;
+            }
+
+            // Obtener valores de entrada
+            const valoresTexto = document.getElementById('valoresX').value;
+            if (!valoresTexto) {
+                alert('Por favor, ingresa valores para X');
+                return;
+            }
+
+            // Parsear valores separados por comas
+            const valoresX = valoresTexto.split(',')
+                .map(val => parseFloat(val.trim()))
+                .filter(val => !isNaN(val));
+
+            if (valoresX.length === 0) {
+                alert('No se pudieron procesar los valores ingresados');
+                return;
+            }
+
+            // Crear tensor y realizar predicciones
+            const tensorX = tf.tensor2d(valoresX, [valoresX.length, 1]);
+            const predicciones = modelo.predict(tensorX);
+            const valoresY = await predicciones.data();
+
+            // Mostrar resultados
+            const listaResultados = document.getElementById('listaResultados');
+            listaResultados.innerHTML = '';
+            
+            valoresX.forEach((x, i) => {
+                const li = document.createElement('li');
+                li.textContent = `Para x = ${x}: y = ${valoresY[i].toFixed(2)}`;
+                listaResultados.appendChild(li);
+            });
+        }
+
+        // Inicializar aplicación
+        window.onload = function() {
+            inicializarGrafico();
+            
+            document.getElementById('entrenarModelo').addEventListener('click', entrenarModelo);
+            document.getElementById('predecir').addEventListener('click', realizarPredicciones);
+        };
+    </script>
+</body>
+</html>
